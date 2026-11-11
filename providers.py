@@ -1,6 +1,7 @@
 """Bốn provider cùng một interface. Không chứa agent loop."""
 import json
 import os
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -10,6 +11,50 @@ CONFIG = {
     'openrouter': ('OPENROUTER_API_KEY', 'https://openrouter.ai/api/v1/chat/completions'),
     'anthropic': ('ANTHROPIC_API_KEY', 'https://api.anthropic.com/v1/messages'),
 }
+
+
+def load_env(path=None):
+    """Load KEY=VALUE entries from .env without overriding the process environment."""
+    env_path = Path(path) if path is not None else Path(__file__).resolve().parent / '.env'
+    try:
+        lines = env_path.read_text(encoding='utf-8-sig').splitlines()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RuntimeError(f'Không thể đọc file cấu hình {env_path}.') from exc
+
+    for line_number, line in enumerate(lines, start=1):
+        entry = line.strip()
+        if not entry or entry.startswith('#'):
+            continue
+        if entry.startswith('export '):
+            entry = entry[len('export '):].lstrip()
+        if '=' not in entry:
+            raise ValueError(f'Dòng {line_number} trong {env_path} không phải KEY=VALUE.')
+
+        name, value = entry.split('=', 1)
+        name = name.strip()
+        if not name or not (name[0].isalpha() or name[0] == '_') or not all(
+            character.isalnum() or character == '_' for character in name
+        ):
+            raise ValueError(f'Tên biến môi trường không hợp lệ ở dòng {line_number} trong {env_path}.')
+
+        value = value.strip()
+        if value and value[0] in ('"', "'"):
+            quote = value[0]
+            closing_quote = value.find(quote, 1)
+            if closing_quote < 0:
+                raise ValueError(f'Giá trị không hợp lệ ở dòng {line_number} trong {env_path}.')
+            trailing = value[closing_quote + 1:].strip()
+            if trailing and not trailing.startswith('#'):
+                raise ValueError(f'Giá trị không hợp lệ ở dòng {line_number} trong {env_path}.')
+            value = value[1:closing_quote]
+        else:
+            value = value.split(' #', 1)[0].rstrip()
+        os.environ.setdefault(name, value)
+
+
+load_env()
 
 
 def post_json(url, headers, payload):
